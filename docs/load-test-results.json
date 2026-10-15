@@ -1,0 +1,161 @@
+{
+  "runId": "c5cc0e",
+  "startedAt": "2026-10-14T14:22:32.541Z",
+  "environment": {
+    "target": "http://localhost:54581",
+    "client": "win32 x64, 12 CPUs, Node v26.7.0",
+    "verifiedAgainst": "SQLite file",
+    "note": "clientLatency is end to end from this client (includes connection setup and client overhead). serverLatency, when present, is the server's own handling time from its request log.",
+    "spawnedPrivateServer": true
+  },
+  "plan": {
+    "baseUrl": "(private server on a free local port)",
+    "ordinary": 40,
+    "ordinarySeconds": 20,
+    "burst": 60,
+    "burstSeconds": 2,
+    "retries": 5,
+    "dbPath": "(temporary database, deleted after the run)",
+    "out": "docs/load-test-results.json",
+    "allowRemote": false,
+    "spawn": true
+  },
+  "totals": {
+    "requestsSent": 110,
+    "acknowledged": 110,
+    "created201": 105,
+    "statusCounts": {
+      "200": 5,
+      "201": 105
+    },
+    "durationSeconds": 21.7,
+    "throughputPerSecond": 5.1
+  },
+  "submitLatencyMs": {
+    "overall": {
+      "count": 110,
+      "min": 1.4733999999989464,
+      "p50": 11.520899999999529,
+      "p95": 145.67380000000048,
+      "p99": 269.1223000000009,
+      "max": 328.8612000000012
+    },
+    "ordinary": {
+      "count": 40,
+      "min": 3.6086999999997715,
+      "p50": 21.31820000000016,
+      "p95": 255.53219999999965,
+      "p99": 328.8612000000012,
+      "max": 328.8612000000012
+    },
+    "burst": {
+      "count": 60,
+      "min": 1.5136999999995169,
+      "p50": 13.16700000000128,
+      "p95": 83.4194000000025,
+      "p99": 101.96280000000115,
+      "max": 101.96280000000115
+    },
+    "retry": {
+      "count": 10,
+      "min": 1.4733999999989464,
+      "p50": 1.7321000000010827,
+      "p95": 3.235100000001694,
+      "p99": 3.235100000001694,
+      "max": 3.235100000001694
+    }
+  },
+  "serverLatencyMs": {
+    "postRequests": {
+      "count": 110,
+      "min": 0.3,
+      "p50": 2.4,
+      "p95": 4.3,
+      "p99": 6.5,
+      "max": 6.7
+    },
+    "listRequests": {
+      "count": 20,
+      "min": 0.4,
+      "p50": 1.4,
+      "p95": 2.5,
+      "p99": 3,
+      "max": 3
+    }
+  },
+  "dashboard": {
+    "streamFreshnessMs": {
+      "count": 105,
+      "min": 1.5688000000009197,
+      "p50": 17.457399999999325,
+      "p95": 146.27850000000035,
+      "p99": 269.5665000000008,
+      "max": 329.1931999999997
+    },
+    "eventsNotObserved": 0,
+    "listLatencyMs": {
+      "count": 20,
+      "min": 5.435199999999895,
+      "p50": 34.607599999999366,
+      "p95": 427.30009999999993,
+      "p99": 440.1971000000012,
+      "max": 440.1971000000012
+    },
+    "freshnessDefinition": "time from starting the POST to the stream delivering request.created (includes the POST itself, so it is conservative)"
+  },
+  "checks": [
+    {
+      "name": "No duplicate sequence numbers",
+      "pass": true,
+      "detail": "105 stored rows, all sequences unique"
+    },
+    {
+      "name": "Every acknowledged request is stored with the sequence it was told",
+      "pass": true,
+      "detail": "110 acknowledged responses checked against SQLite file; 0 missing or mismatched"
+    },
+    {
+      "name": "No stored row without an acknowledgement (no ghost or duplicate rows)",
+      "pass": true,
+      "detail": "105 rows for this run = 105 distinct acknowledged requests"
+    },
+    {
+      "name": "Retrying with the same idempotency key creates exactly one row",
+      "pass": true,
+      "detail": "5 concurrent same-key pairs; 0 created a second row or got different answers"
+    },
+    {
+      "name": "No unexpected errors (5xx, network errors, timeouts, non-JSON)",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "name": "Submission rate limit did not interfere with the test",
+      "pass": true,
+      "detail": "no 429 responses"
+    },
+    {
+      "name": "Dashboard stream connected and sent a snapshot",
+      "pass": true,
+      "detail": "snapshot received"
+    },
+    {
+      "name": "Dashboard list stayed available during the run",
+      "pass": true,
+      "detail": "20 polls ok, 0 failed"
+    }
+  ],
+  "targets": {
+    "p95": {
+      "target": 500,
+      "value": 4.3,
+      "basis": "server time",
+      "met": true
+    },
+    "freshness": {
+      "target": 2000,
+      "value": 329.1931999999997,
+      "met": true
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "dj-night-requests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DJ Night song request application (MVP)",
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @dj/api\" \"npm run dev -w @dj/web\"",
+    "build": "npm run build -w @dj/web && npm run build -w @dj/api",
+    "start": "npm run start -w @dj/api",
+    "test": "npm test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "qr": "npm run qr -w @dj/api --",
+    "hash-password": "npm run hash-password -w @dj/api --",
+    "load-test": "npm run load-test -w @dj/api --"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

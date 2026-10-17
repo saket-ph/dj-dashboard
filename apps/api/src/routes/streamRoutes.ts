@@ -19,7 +19,7 @@ export interface StreamDeps {
  * GET /api/dj/requests/stream  (mounted inside the DJ router, so the session check already ran)
  *
  * On connect the client receives a full `snapshot` read from SQLite, then `request.created` /
- * `request.updated` events. A periodic `heartbeat` event keeps proxies from idling the stream
+ * `request.updated` / `request.deleted` events. A periodic `heartbeat` event keeps proxies from idling the stream
  * out, lets the client detect a dead connection, and doubles as a session re-check: if the
  * session ended, the stream is closed.
  */

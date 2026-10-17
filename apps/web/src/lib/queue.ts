@@ -30,8 +30,8 @@ export function applySnapshot(snapshot: readonly SongRequest[]): SongRequest[] {
  * Merges the result of a GET reload into local state (union by id, newer `updatedAt` wins).
  *
  * Unlike a stream snapshot, a GET response can be older than an SSE event that arrived while
- * the request was in flight, so rows are never dropped here. Requests are never deleted by the
- * app, and the next stream snapshot (a strict replace) still corrects any divergence.
+ * the request was in flight, so rows are never dropped here. Deletes are applied separately
+ * (`removeRequests` plus `request.deleted`). The next stream snapshot is a strict replace.
  */
 export function mergeReload(local: readonly SongRequest[], fetched: readonly SongRequest[]): SongRequest[] {
   return normalizeQueue([...local, ...fetched]);
@@ -41,6 +41,13 @@ export function mergeReload(local: readonly SongRequest[], fetched: readonly Son
  * Inserts or updates one request by id. Never creates a duplicate, and never lets an older
  * update overwrite a newer copy (e.g. a late SSE event after a PATCH response).
  */
+/** Drops the given ids. Other rows keep their sequence numbers and order. */
+export function removeRequests(list: readonly SongRequest[], ids: readonly string[]): SongRequest[] {
+  if (ids.length === 0) return normalizeQueue(list);
+  const drop = new Set(ids);
+  return normalizeQueue(list.filter((item) => !drop.has(item.id)));
+}
+
 export function upsertRequest(list: readonly SongRequest[], incoming: SongRequest): SongRequest[] {
   const existing = list.find((r) => r.id === incoming.id);
   if (existing && existing.updatedAt > incoming.updatedAt) return normalizeQueue(list);
@@ -53,10 +60,15 @@ export interface SplitQueue {
   history: SongRequest[];
 }
 
+function byPopularity(a: SongRequest, b: SongRequest): number {
+  const byLikes = (b.likeCount ?? 1) - (a.likeCount ?? 1);
+  return byLikes !== 0 ? byLikes : a.sequenceNumber - b.sequenceNumber;
+}
+
 export function splitQueue(list: readonly SongRequest[]): SplitQueue {
   const sorted = normalizeQueue(list);
   return {
-    pending: sorted.filter((r) => r.status === 'pending'),
+    pending: sorted.filter((r) => r.status === 'pending').sort(byPopularity),
     history: sorted.filter((r) => r.status !== 'pending'),
   };
 }

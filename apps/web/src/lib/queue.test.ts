@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applySnapshot, mergeReload, normalizeQueue, splitQueue, upsertRequest } from './queue';
+import { applySnapshot, mergeReload, normalizeQueue, removeRequests, splitQueue, upsertRequest } from './queue';
 import type { SongRequest } from './types';
 
 function req(n: number, overrides: Partial<SongRequest> = {}): SongRequest {
@@ -87,6 +87,11 @@ describe('queue helpers (T-009, T3.04, T3.06)', () => {
     expect(mergeReload(local, fetched)[0]?.status).toBe('played');
   });
 
+  it('removeRequests drops the given ids and keeps the others in sequence order', () => {
+    const out = removeRequests([req(3), req(1), req(2)], ['id-2']);
+    expect(out.map((r) => r.sequenceNumber)).toEqual([1, 3]);
+  });
+
   it('splits pending from history, both ordered by sequence', () => {
     const { pending, history } = splitQueue([
       req(4, { status: 'skipped' }),
@@ -96,5 +101,14 @@ describe('queue helpers (T-009, T3.04, T3.06)', () => {
     ]);
     expect(pending.map((r) => r.sequenceNumber)).toEqual([1, 2]);
     expect(history.map((r) => r.sequenceNumber)).toEqual([3, 4]);
+  });
+
+  it('orders pending songs by likes, and breaks ties by who asked first', () => {
+    const { pending } = splitQueue([
+      req(1, { likeCount: 2 }),
+      req(2, { likeCount: 5 }),
+      req(3, { likeCount: 5 }),
+    ]);
+    expect(pending.map((r) => r.sequenceNumber)).toEqual([2, 3, 1]);
   });
 });

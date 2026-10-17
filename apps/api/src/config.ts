@@ -28,6 +28,8 @@ export interface AppConfig {
   host: string | null;
   /** Directory with the built web app, or null to serve the API only. */
   webDistDir: string | null;
+  /** YouTube Data API key. Null disables lookup; song requests are still saved. Never logged. */
+  youtubeApiKey: string | null;
 }
 
 export class ConfigError extends Error {
@@ -125,6 +127,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     trustProxy: env.TRUST_PROXY?.trim().toLowerCase() === 'true',
     host: env.HOST?.trim() || null,
     webDistDir: null,
+    youtubeApiKey: env.YOUTUBE_API_KEY?.trim() || null,
   };
 }
 
@@ -144,6 +147,12 @@ export function deploymentWarnings(config: AppConfig): string[] {
   if (url.protocol === 'http:' && !isLoopbackHost(url.hostname)) {
     warnings.push(
       'PUBLIC_BASE_URL is not HTTPS. In production the DJ session cookie is Secure, so browsers will not keep it over plain HTTP and DJ login will appear to do nothing. Serve the public URL over HTTPS.',
+    );
+  }
+
+  if (!config.youtubeApiKey) {
+    warnings.push(
+      'YOUTUBE_API_KEY is not set, so new song requests will not get a YouTube link. Requests themselves are still saved.',
     );
   }
 

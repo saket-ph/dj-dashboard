@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, apiFetch } from '../lib/api';
 import { startLiveConnection, type ConnectionState } from '../lib/liveConnection';
-import { describeActionError, describeLoadError } from '../lib/messages';
-import { applySnapshot, mergeReload, splitQueue, upsertRequest } from '../lib/queue';
+import { describeActionError, describeDeleteError, describeLoadError } from '../lib/messages';
+import { applySnapshot, mergeReload, removeRequests, splitQueue, upsertRequest } from '../lib/queue';
 import type { SongRequest } from '../lib/types';
 import { RequestRow } from './RequestRow';
 
@@ -37,7 +37,11 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
   const [actionError, setActionError] = useState('');
   const [loggingOut, setLoggingOut] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [connection, setConnection] = useState<ConnectionState>('connecting');
+  // Ids deleted locally that a stale GET must not put back. Cleared when a stream snapshot arrives.
+  const suppressed = useRef(new Set<string>());
   // Synchronous guard: blocks a second click before React re-renders the button as disabled.
   const inFlight = useRef(new Set<string>());
 
@@ -58,7 +62,7 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
       const { data } = await apiFetch<{ requests: SongRequest[] }>('/api/dj/requests');
       // The persisted queue from SQLite. Merged (not replaced) so a row an SSE event delivered
       // while this GET was in flight is not lost; the stream snapshot is the strict replace.
-      setRequests((local) => mergeReload(local, data.requests));
+      setRequests((local) => mergeReload(local, data.requests).filter((row) => !suppressed.current.has(row.id)));
       setLoadState('ready');
       setLoadError('');
     } catch (err) {
@@ -87,11 +91,14 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
       onState: setConnection,
       // A snapshot is the authoritative queue read from SQLite: replace local state.
       onSnapshot: (list) => {
+        suppressed.current.clear();
         setRequests(applySnapshot(list));
         setLoadState('ready');
         setLoadError('');
       },
-      onUpsert: (request) => setRequests((local) => upsertRequest(local, request)),
+      onUpsert: (request) =>
+        setRequests((local) => (suppressed.current.has(request.id) ? local : upsertRequest(local, request))),
+      onDeleted: (ids) => applyDeleted(ids),
       onReload: () => void reloadRef.current(),
     });
 
@@ -128,6 +135,49 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
     }
   }
 
+  function applyDeleted(ids: readonly string[]) {
+    for (const id of ids) suppressed.current.add(id);
+    setSelected((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    setRequests((local) => removeRequests(local, ids));
+  }
+
+  async function deleteSongs(body: { all: true } | { ids: string[] }, confirmText: string) {
+    if (deleting) return;
+    if (!window.confirm(confirmText)) return;
+    setDeleting(true);
+    setActionError('');
+    try {
+      const { data } = await apiFetch<{ deletedIds: string[] }>('/api/dj/requests', {
+        method: 'DELETE',
+        body: JSON.stringify(body),
+        csrfToken,
+      });
+      applyDeleted(data.deletedIds);
+    } catch (err) {
+      if (handleError(err)) return;
+      setActionError(describeDeleteError(err));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function toggleSelected(id: string, on: boolean) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function toggleAll(on: boolean) {
+    setSelected(on ? new Set(requests.map((row) => row.id)) : new Set());
+  }
+
   async function logout() {
     if (loggingOut) return;
     setLoggingOut(true);
@@ -144,6 +194,7 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
   }
 
   const { pending, history } = useMemo(() => splitQueue(requests), [requests]);
+  const allSelected = requests.length > 0 && requests.every((row) => selected.has(row.id));
 
   return (
     <main className="page page--dj page--dashboard">
@@ -199,6 +250,41 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
             </p>
           )}
 
+          {requests.length > 0 && (
+            <div className="dash-actions">
+              <label className="dash-actions__all">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={(event) => toggleAll(event.target.checked)}
+                  aria-label="Select all requests"
+                />
+                Select all
+              </label>
+              <button
+                type="button"
+                className="button button--danger"
+                disabled={selected.size === 0 || deleting}
+                onClick={() =>
+                  void deleteSongs(
+                    { ids: [...selected] },
+                    `Delete ${selected.size} selected ${selected.size === 1 ? 'request' : 'requests'}? This cannot be undone.`,
+                  )
+                }
+              >
+                {deleting ? 'Deleting…' : `Delete selected${selected.size > 0 ? ` (${selected.size})` : ''}`}
+              </button>
+              <button
+                type="button"
+                className="button button--danger"
+                disabled={deleting}
+                onClick={() => void deleteSongs({ all: true }, 'Delete every request in the queue? This cannot be undone.')}
+              >
+                Delete all
+              </button>
+            </div>
+          )}
+
           <section aria-labelledby="pending-heading">
             <h2 id="pending-heading">
               Pending <span className="count" data-testid="pending-count">{pending.length}</span>
@@ -210,7 +296,15 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
             ) : (
               <ol className="queue">
                 {pending.map((r, i) => (
-                  <RequestRow key={r.id} request={r} isNext={i === 0} busy={busyIds.has(r.id)} onMark={mark} />
+                  <RequestRow
+                    key={r.id}
+                    request={r}
+                    isNext={i === 0}
+                    busy={busyIds.has(r.id)}
+                    selected={selected.has(r.id)}
+                    onSelect={toggleSelected}
+                    onMark={mark}
+                  />
                 ))}
               </ol>
             )}
@@ -225,7 +319,7 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
             ) : (
               <ol className="queue queue--history">
                 {history.map((r) => (
-                  <RequestRow key={r.id} request={r} />
+                  <RequestRow key={r.id} request={r} selected={selected.has(r.id)} onSelect={toggleSelected} />
                 ))}
               </ol>
             )}

@@ -45,7 +45,7 @@ describe('frontend source hygiene (FR-058, FR-028)', () => {
   it('ships no secrets or server env names to the browser bundle', () => {
     for (const file of files) {
       const text = code(file);
-      expect(text, file).not.toMatch(/SESSION_SECRET|DJ_PASSWORD_HASH|process\.env/);
+      expect(text, file).not.toMatch(/SESSION_SECRET|DJ_PASSWORD_HASH|YOUTUBE_API_KEY|process\.env/);
     }
   });
 });

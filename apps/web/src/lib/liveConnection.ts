@@ -16,6 +16,8 @@ export interface LiveConnectionOptions {
   onSnapshot: (requests: SongRequest[]) => void;
   /** One committed request created or updated: upsert by id. */
   onUpsert: (request: SongRequest) => void;
+  /** Ids removed from SQLite. */
+  onDeleted?: (ids: string[]) => void;
   /** Ask the owner to reload the queue from SQLite via GET /api/dj/requests. */
   onReload: () => void;
   createEventSource?: (url: string) => EventSourceLike;
@@ -44,6 +46,7 @@ const CLOSED = 2;
  * Keeps the dashboard live over Server-Sent Events.
  *
  * - `snapshot` replaces local state; `request.created`/`request.updated` upsert by id.
+ * - `request.deleted` removes those ids.
  * - On any failure (browser error OR prolonged silence) the status becomes "reconnecting"
  *   (then "offline" after repeated failures), the queue is reloaded from SQLite immediately and
  *   then polled while the stream is down, so a missed notification is always corrected
@@ -183,6 +186,14 @@ export function startLiveConnection(options: LiveConnectionOptions): LiveConnect
         if (request && typeof request.id === 'string') options.onUpsert(request);
       });
     }
+
+    es.addEventListener('request.deleted', (e) => {
+      if (source !== es) return;
+      armWatchdog(es);
+      const data = parse<{ ids?: unknown }>(e.data);
+      const ids = Array.isArray(data?.ids) ? data.ids.filter((id): id is string => typeof id === 'string') : [];
+      if (ids.length > 0) options.onDeleted?.(ids);
+    });
 
     es.addEventListener('error', () => fail(es, false));
   }

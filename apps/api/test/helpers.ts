@@ -42,6 +42,8 @@ export interface TestServer {
   clock: TestClock;
   dbPath: string;
   dir: string;
+  /** Resolves when every YouTube lookup started so far has finished. */
+  whenYoutubeIdle(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -96,9 +98,14 @@ export async function startTestServer(options: StartOptions = {}): Promise<TestS
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
   });
   const { port } = server.address() as AddressInfo;
+  const whenYoutubeIdle = (): Promise<void> => {
+    const wait = app.locals.whenYoutubeIdle as (() => Promise<void>) | undefined;
+    return wait ? wait() : Promise.resolve();
+  };
 
   return {
     baseUrl: `http://127.0.0.1:${port}`,
+    whenYoutubeIdle,
     config,
     db,
     repo,
@@ -108,6 +115,7 @@ export async function startTestServer(options: StartOptions = {}): Promise<TestS
     dbPath,
     dir,
     close: async () => {
+      await whenYoutubeIdle();
       await new Promise<void>((resolve) => {
         server.closeAllConnections();
         server.close(() => resolve());

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ApiError } from './api';
 import {
   describeActionError,
+  describeDeleteError,
   describeLoadError,
   describeLoginError,
   describeSubmitError,
@@ -28,6 +29,7 @@ const describers = {
   submit: describeSubmitError,
   login: describeLoginError,
   action: describeActionError,
+  delete: describeDeleteError,
   load: describeLoadError,
 };
 

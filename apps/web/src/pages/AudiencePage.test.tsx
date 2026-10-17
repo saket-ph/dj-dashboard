@@ -7,12 +7,14 @@ import { apiError, bodyOf, callsTo, deferred, installFetch, json } from '../test
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 function setup(handleRequestPost: (init: RequestInit | undefined) => Response | Promise<Response>) {
   const fetchSpy = installFetch((url, init) => {
     if (url === '/api/config') return json(200, { eventTitle: 'Test Night' });
+    if (url === '/api/songs') return json(200, { songs: [] });
     if (url === '/api/requests') return handleRequestPost(init);
     return apiError(404, 'NOT_FOUND');
   });
@@ -21,10 +23,9 @@ function setup(handleRequestPost: (init: RequestInit | undefined) => Response | 
   return { fetchSpy, user };
 }
 
-async function fill(user: ReturnType<typeof userEvent.setup>, name: string, song: string, artist = '') {
+async function fill(user: ReturnType<typeof userEvent.setup>, name: string, song: string) {
   await user.type(screen.getByLabelText('Your name'), name);
   await user.type(screen.getByLabelText('Song title'), song);
-  if (artist) await user.type(screen.getByLabelText(/Artist/), artist);
 }
 
 const submit = () => screen.getByRole('button', { name: /send request|sending/i });
@@ -39,14 +40,14 @@ describe('AudiencePage', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Test Night' })).toBeTruthy();
     expect(screen.getByLabelText('Your name')).toBeTruthy();
     expect(screen.getByLabelText('Song title')).toBeTruthy();
-    expect(screen.getByLabelText(/Artist/)).toBeTruthy();
+    expect(screen.queryByLabelText(/Artist/)).toBeNull();
     expect(screen.queryByLabelText(/password/i)).toBeNull();
   });
 
   it('shows success only after the server confirms, then clears the form (FR-008, FR-009, FR-013)', async () => {
     const pending = deferred<Response>();
     const { user } = setup(() => pending.promise);
-    await fill(user, 'Alex', 'Blinding Lights', 'The Weeknd');
+    await fill(user, 'Alex', 'Blinding Lights');
     await user.click(submit());
 
     // Request is in flight: loading state, and NO success message yet.
@@ -58,7 +59,6 @@ describe('AudiencePage', () => {
     expect(await screen.findByText(/in the queue/i)).toBeTruthy();
     expect((screen.getByLabelText('Your name') as HTMLInputElement).value).toBe('');
     expect((screen.getByLabelText('Song title') as HTMLInputElement).value).toBe('');
-    expect((screen.getByLabelText(/Artist/) as HTMLInputElement).value).toBe('');
   });
 
   it('sends only the documented fields plus an idempotency key, omitting a blank artist', async () => {
@@ -173,8 +173,6 @@ describe('AudiencePage', () => {
     expect(document.activeElement).toBe(screen.getByLabelText('Song title'));
     await user.keyboard('Keyboard Song');
     await user.tab();
-    expect(document.activeElement).toBe(screen.getByLabelText(/Artist/));
-    await user.tab();
     expect(document.activeElement).toBe(submit());
     await user.keyboard('{Enter}');
     await screen.findByText(/in the queue/i);
@@ -195,5 +193,82 @@ describe('AudiencePage', () => {
     expect(await screen.findByText(/could not load the event details/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
     expect(submit().hasAttribute('disabled')).toBe(false);
+  });
+
+  it('lists the most liked songs first and a + tap cheers without a name', async () => {
+    const songs = [
+      { id: 'song-1', songTitle: 'Crowd Favourite', count: 4, liked: false },
+      { id: 'song-2', songTitle: 'One Request', count: 1, liked: false },
+    ];
+    const fetchSpy = installFetch((url, init) => {
+      if (url === '/api/config') return json(200, { eventTitle: 'Test Night' });
+      if (url === '/api/songs') return json(200, { songs });
+      if (url === '/api/songs/song-1/like' && init?.method === 'POST') {
+        return json(200, { liked: true, songTitle: 'Crowd Favourite' });
+      }
+      return apiError(404, 'NOT_FOUND');
+    });
+    const user = userEvent.setup();
+    render(<AudiencePage />);
+    const items = await screen.findAllByRole('listitem');
+    expect(items[0]!.textContent).toContain('Crowd Favourite');
+    expect(items[0]!.textContent).toContain('4 likes');
+    expect(items[1]!.textContent).toContain('One Request');
+    await user.click(screen.getByRole('button', { name: 'Like Crowd Favourite' }));
+    await screen.findByText(/cheering for Crowd Favourite/i);
+    const [call] = callsTo(fetchSpy, '/api/songs/song-1/like', 'POST');
+    expect(bodyOf(call?.[1] as RequestInit)).toEqual({ move: false });
+    expect(callsTo(fetchSpy, '/api/requests', 'POST')).toHaveLength(0);
+  });
+
+  it('keeps the current cheer when a second song is tapped and the person cancels', async () => {
+    const fetchSpy = installFetch((url, init) => {
+      if (url === '/api/config') return json(200, { eventTitle: 'Test Night' });
+      if (url === '/api/songs') {
+        return json(200, {
+          songs: [{ id: 'song-2', songTitle: 'Levitating', count: 1, liked: false }],
+        });
+      }
+      if (url === '/api/songs/song-2/like') {
+        return apiError(409, 'CONFLICT', 'You can only cheer for one song at a time — you already picked “Blinding Lights”. Move your cheer to “Levitating”?');
+      }
+      return apiError(404, 'NOT_FOUND', String(init?.method));
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const user = userEvent.setup();
+    render(<AudiencePage />);
+    await user.click(await screen.findByRole('button', { name: 'Like Levitating' }));
+    expect(callsTo(fetchSpy, '/api/songs/song-2/like', 'POST')).toHaveLength(1);
+    expect(screen.queryByText(/cheering for/i)).toBeNull();
+    expect(screen.getByRole('button', { name: /send request/i }).hasAttribute('disabled')).toBe(false);
+  });
+
+  it('moves the cheer after the person confirms, and a liked song can be taken back', async () => {
+    let likes = 0;
+    const fetchSpy = installFetch((url, init) => {
+      if (url === '/api/config') return json(200, { eventTitle: 'Test Night' });
+      if (url === '/api/songs') {
+        return json(200, { songs: [{ id: 'song-2', songTitle: 'Levitating', count: 2, liked: likes > 0 }] });
+      }
+      if (url === '/api/songs/song-2/like' && init?.method === 'POST') {
+        likes += 1;
+        if (likes === 1) {
+          return apiError(409, 'CONFLICT', 'Move your cheer to “Levitating”?');
+        }
+        return json(200, { liked: likes === 2, songTitle: 'Levitating' });
+      }
+      return apiError(404, 'NOT_FOUND');
+    });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<AudiencePage />);
+    await user.click(await screen.findByRole('button', { name: 'Like Levitating' }));
+    await screen.findByText(/cheering for Levitating/i);
+    expect(confirm).toHaveBeenCalled();
+    const posts = callsTo(fetchSpy, '/api/songs/song-2/like', 'POST');
+    expect(bodyOf(posts[1]?.[1] as RequestInit)).toEqual({ move: true });
+
+    await user.click(await screen.findByRole('button', { name: 'Remove your like from Levitating' }));
+    await screen.findByText(/was removed/i);
   });
 });

@@ -14,6 +14,8 @@ describe('config (T1.03)', () => {
     assert.equal(c.port, 3000);
     assert.equal(c.sessionTtlHours, 12);
     assert.equal(c.eventTitle, 'DJ Night');
+    assert.equal(c.youtubeApiKey, null);
+    assert.equal(loadConfig({ ...valid, YOUTUBE_API_KEY: '  abc  ' }).youtubeApiKey, 'abc');
     assert.match(c.databasePath, /dj-requests\.sqlite$/);
   });
 
@@ -63,24 +65,41 @@ describe('deployment warnings (T5.02)', () => {
 
   it('warns that login cannot work over plain HTTP in production', () => {
     const w = deploymentWarnings(loadConfig({ ...prod, PUBLIC_BASE_URL: 'http://dj.example.test' }));
-    assert.equal(w.length, 1);
-    assert.match(w[0]!, /not HTTPS/);
-    assert.match(w[0]!, /Secure/);
+    assert.ok(w.some((m) => /not HTTPS/.test(m) && /Secure/.test(m)));
   });
 
-  it('allows production over localhost HTTP without a warning (local smoke test)', () => {
-    assert.deepEqual(deploymentWarnings(loadConfig({ ...prod, PUBLIC_BASE_URL: 'http://localhost:3000' })), []);
+  it('allows production over localhost HTTP without a cookie warning (local smoke test)', () => {
+    const w = deploymentWarnings(loadConfig({ ...prod, PUBLIC_BASE_URL: 'http://localhost:3000' }));
+    assert.ok(w.every((m) => !/not HTTPS/.test(m)));
   });
 
   it('warns when HTTPS is used without TRUST_PROXY, because all visitors would share one rate-limit bucket', () => {
     const w = deploymentWarnings(loadConfig({ ...prod, PUBLIC_BASE_URL: 'https://dj.example.test' }));
-    assert.equal(w.length, 1);
-    assert.match(w[0]!, /TRUST_PROXY/);
+    assert.ok(w.some((m) => /TRUST_PROXY/.test(m)));
+  });
+
+  it('warns in production when no YouTube key is set, and stays quiet when one is', () => {
+    const missing = deploymentWarnings(loadConfig({ ...prod, PUBLIC_BASE_URL: 'https://dj.example.test', TRUST_PROXY: 'true' }));
+    assert.deepEqual(missing, [
+      'YOUTUBE_API_KEY is not set, so new song requests will not get a YouTube link. Requests themselves are still saved.',
+    ]);
+    const set = deploymentWarnings(
+      loadConfig({ ...prod, PUBLIC_BASE_URL: 'https://dj.example.test', TRUST_PROXY: 'true', YOUTUBE_API_KEY: 'super-secret-yt' }),
+    );
+    assert.deepEqual(set, []);
+    assert.ok(!missing.join(' ').includes('super-secret-yt'));
   });
 
   it('is clean for the recommended production setup', () => {
     assert.deepEqual(
-      deploymentWarnings(loadConfig({ ...prod, PUBLIC_BASE_URL: 'https://dj.example.test', TRUST_PROXY: 'true' })),
+      deploymentWarnings(
+        loadConfig({
+          ...prod,
+          PUBLIC_BASE_URL: 'https://dj.example.test',
+          TRUST_PROXY: 'true',
+          YOUTUBE_API_KEY: 'yt-test-key',
+        }),
+      ),
       [],
     );
   });

@@ -4,6 +4,7 @@ import type { SongRequest } from '../src/types.js';
 import {
   authHeaders,
   loginAsDj,
+  openStream,
   patchStatus,
   postJson,
   seedRequests,
@@ -41,6 +42,14 @@ describe('unauthenticated access (T-012, NFR-007)', () => {
 
     const patch = await patchStatus(s.baseUrl, first.id, 'played', {});
     assert.equal(patch.status, 401);
+
+    const del = await fetch(`${s.baseUrl}/api/dj/requests`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ all: true }),
+    });
+    assert.equal(del.status, 401);
+    assert.equal(s.repo.count(), 2);
     assert.equal(s.repo.getById(first.id)?.status, 'pending', 'unauthenticated patch must not write');
 
     for (const p of ['/api/dj/requests/stream', '/api/dj/anything']) {
@@ -65,11 +74,14 @@ describe('GET /api/dj/requests (T2.09, T-009)', () => {
       'artistName',
       'createdAt',
       'id',
+      'likeCount',
       'requesterName',
       'sequenceNumber',
       'songTitle',
       'status',
       'updatedAt',
+      'youtubeTitle',
+      'youtubeVideoId',
     ]);
     assert.equal(first.artistName, null);
   });
@@ -210,6 +222,69 @@ describe('queue survives a restart (T-017)', () => {
     // Sessions are in SQLite too, so the old cookie keeps working until it expires.
     const reuse = await fetch(`${second.baseUrl}/api/dj/requests`, { headers: authHeaders(login, false) });
     assert.equal(reuse.status, 200);
+  });
+});
+
+describe('DELETE /api/dj/requests', () => {
+  it('removes the chosen rows, or the whole queue, and tells live dashboards', async () => {
+    const s = await server();
+    const seeded = await seedRequests(s.baseUrl, 3);
+    const login = await loginAsDj(s.baseUrl);
+    const headers = { ...authHeaders(login), 'content-type': 'application/json' };
+    const stream = await openStream(s.baseUrl, authHeaders(login, false));
+    await stream.waitFor((events) => events.some((event) => event.event === 'snapshot'));
+
+    const noCsrf = await fetch(`${s.baseUrl}/api/dj/requests`, {
+      method: 'DELETE',
+      headers: { cookie: login.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ ids: [seeded[0]!.id] }),
+    });
+    assert.equal(noCsrf.status, 403);
+    assert.equal(s.repo.count(), 3);
+
+    const one = await fetch(`${s.baseUrl}/api/dj/requests`, {
+      method: 'DELETE',
+      headers,
+      body: JSON.stringify({ ids: [seeded[0]!.id, seeded[0]!.id] }),
+    });
+    assert.equal(one.status, 200);
+    assert.deepEqual(((await one.json()) as { deletedIds: string[] }).deletedIds, [seeded[0]!.id]);
+    assert.deepEqual(
+      s.repo.list().map((row) => row.sequenceNumber),
+      [2, 3],
+    );
+
+    const bad = await fetch(`${s.baseUrl}/api/dj/requests`, {
+      method: 'DELETE',
+      headers,
+      body: JSON.stringify({ ids: ['not-an-id'] }),
+    });
+    assert.equal(bad.status, 400);
+    assert.equal(s.repo.count(), 2);
+
+    const all = await fetch(`${s.baseUrl}/api/dj/requests`, {
+      method: 'DELETE',
+      headers,
+      body: JSON.stringify({ all: true }),
+    });
+    assert.equal(all.status, 200);
+    assert.deepEqual(
+      ((await all.json()) as { deletedIds: string[] }).deletedIds.sort(),
+      [seeded[1]!.id, seeded[2]!.id].sort(),
+    );
+    assert.equal(s.repo.count(), 0);
+
+    await stream.waitFor((events) => events.filter((event) => event.event === 'request.deleted').length >= 2);
+    const deleted = stream.events.filter((event) => event.event === 'request.deleted');
+    const removed = deleted.flatMap((event) => (event.data as { ids: string[] }).ids);
+    assert.deepEqual(removed.sort(), seeded.map((row) => row.id).sort());
+    stream.abort();
+
+    const next = await postJson(`${s.baseUrl}/api/requests`, { requesterName: 'Alex', songTitle: 'After clear' });
+    assert.equal(next.status, 201);
+    assert.equal(((await next.json()) as { request: { sequenceNumber: number } }).request.sequenceNumber, 1);
+    const stillLoggedIn = await fetch(`${s.baseUrl}/api/dj/requests`, { headers: authHeaders(login, false) });
+    assert.equal(stillLoggedIn.status, 200);
   });
 });
 

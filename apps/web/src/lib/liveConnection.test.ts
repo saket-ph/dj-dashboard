@@ -82,6 +82,16 @@ describe('live connection (T3.04–T3.06, T-018)', () => {
     ]);
   });
 
+  it('forwards deleted ids and ignores an empty or malformed delete', () => {
+    const deleted: string[][] = [];
+    const { current } = setup({ onDeleted: (ids) => deleted.push(ids) });
+    current().emit('snapshot', { requests: [] });
+    current().emit('request.deleted', { ids: ['id-1', 'id-2'] });
+    current().emit('request.deleted', { ids: [] });
+    current().emit('request.deleted', { nope: true });
+    expect(deleted).toEqual([['id-1', 'id-2']]);
+  });
+
   it('ignores malformed event payloads without throwing', () => {
     const { upserts, snapshots, current } = setup();
     const es = current();

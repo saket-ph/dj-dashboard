@@ -38,9 +38,9 @@ describe('submission rate limiting (T4.01, T-020)', () => {
   it('allows requests under the limit and throttles the next one without inserting', async () => {
     const s = await server({ env: limited });
     for (let i = 0; i < 3; i++) {
-      assert.equal((await postJson(`${s.baseUrl}/api/requests`, valid)).status, 201);
+      assert.equal((await postJson(`${s.baseUrl}/api/requests`, { ...valid, songTitle: `Song ${i}` })).status, 201);
     }
-    const res = await postJson(`${s.baseUrl}/api/requests`, valid);
+    const res = await postJson(`${s.baseUrl}/api/requests`, { ...valid, songTitle: 'Song blocked' });
     assert.equal(res.status, 429);
     assert.ok(Number(res.headers.get('retry-after')) >= 1);
     const body = (await res.json()) as { error: { code: string; message: string } };
@@ -56,18 +56,18 @@ describe('submission rate limiting (T4.01, T-020)', () => {
 
   it('allows submissions again after the window passes', async () => {
     const s = await server({ env: limited });
-    for (let i = 0; i < 4; i++) await postJson(`${s.baseUrl}/api/requests`, valid);
-    assert.equal((await postJson(`${s.baseUrl}/api/requests`, valid)).status, 429);
+    for (let i = 0; i < 4; i++) await postJson(`${s.baseUrl}/api/requests`, { ...valid, songTitle: `Song ${i}` });
+    assert.equal((await postJson(`${s.baseUrl}/api/requests`, { ...valid, songTitle: 'Song blocked' })).status, 429);
     s.clock.advance(60_001);
-    assert.equal((await postJson(`${s.baseUrl}/api/requests`, valid)).status, 201);
+    assert.equal((await postJson(`${s.baseUrl}/api/requests`, { ...valid, songTitle: 'Song after' })).status, 201);
   });
 
   it('limits each client IP separately when behind a trusted proxy', async () => {
     const s = await server({ env: { ...limited, TRUST_PROXY: 'true' } });
     const as = (ip: string) => ({ 'x-forwarded-for': ip });
-    for (let i = 0; i < 4; i++) await postJson(`${s.baseUrl}/api/requests`, valid, as('203.0.113.1'));
-    assert.equal((await postJson(`${s.baseUrl}/api/requests`, valid, as('203.0.113.1'))).status, 429);
-    assert.equal((await postJson(`${s.baseUrl}/api/requests`, valid, as('203.0.113.2'))).status, 201);
+    for (let i = 0; i < 4; i++) await postJson(`${s.baseUrl}/api/requests`, { ...valid, songTitle: `Song ${i}` }, as('203.0.113.1'));
+    assert.equal((await postJson(`${s.baseUrl}/api/requests`, { ...valid, songTitle: 'Song blocked' }, as('203.0.113.1'))).status, 429);
+    assert.equal((await postJson(`${s.baseUrl}/api/requests`, { ...valid, songTitle: 'Other guest' }, as('203.0.113.2'))).status, 201);
   });
 
   it('does not rate-limit the DJ endpoints or reads', async () => {
@@ -172,12 +172,12 @@ describe('idempotency keys (T4.04, FR-012)', () => {
     assert.equal(s.repo.getById(original.id)?.songTitle, 'Song');
   });
 
-  it('different keys always insert; requests without a key always insert', async () => {
+  it('different songs insert even when each one uses its own key', async () => {
     const s = await server();
-    await postJson(`${s.baseUrl}/api/requests`, { ...valid, idempotencyKey: 'key-a' });
-    await postJson(`${s.baseUrl}/api/requests`, { ...valid, idempotencyKey: 'key-b' });
-    await postJson(`${s.baseUrl}/api/requests`, valid);
-    await postJson(`${s.baseUrl}/api/requests`, valid);
+    await postJson(`${s.baseUrl}/api/requests`, { ...valid, songTitle: 'One', idempotencyKey: 'key-a' });
+    await postJson(`${s.baseUrl}/api/requests`, { ...valid, songTitle: 'Two', idempotencyKey: 'key-b' });
+    await postJson(`${s.baseUrl}/api/requests`, { ...valid, songTitle: 'Three' });
+    await postJson(`${s.baseUrl}/api/requests`, { ...valid, songTitle: 'Four' });
     assert.equal(countRows(s.db), 4);
   });
 

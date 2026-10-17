@@ -15,6 +15,7 @@ import { authRoutes } from './routes/authRoutes.js';
 import { djRoutes } from './routes/djRoutes.js';
 import { publicRoutes } from './routes/publicRoutes.js';
 import { mountStream } from './routes/streamRoutes.js';
+import { attachYoutubeMatch, createYoutubeClient, type YoutubeClient } from './youtube.js';
 
 export interface AppDeps {
   config: AppConfig;
@@ -26,12 +27,20 @@ export interface AppDeps {
   hub?: RealtimeHub;
   /** SSE heartbeat interval (also re-checks the session). Default 15 s. */
   heartbeatMs?: number;
+  /**
+   * YouTube search. Omit to build one from `YOUTUBE_API_KEY` (or disable lookup when that is unset).
+   * Pass null to force lookup off.
+   */
+  youtube?: YoutubeClient | null;
 }
 
 export function createApp(deps: AppDeps): Express {
   const { config, logger } = deps;
   const clock: Clock = deps.clock ?? (() => new Date());
   const hub = deps.hub ?? createHub((reason) => logger.warn('realtime hub issue', { reason }));
+  const youtube =
+    deps.youtube === undefined ? (config.youtubeApiKey ? createYoutubeClient(config.youtubeApiKey) : null) : deps.youtube;
+  let youtubeTail: Promise<void> = Promise.resolve();
 
   // Per-client (IP) limits, in memory. Tests drive them through the injected clock.
   const nowMs = (): number => clock().getTime();
@@ -40,6 +49,7 @@ export function createApp(deps: AppDeps): Express {
 
   const app = express();
   app.disable('x-powered-by');
+  app.locals.whenYoutubeIdle = () => youtubeTail;
   if (config.trustProxy) app.set('trust proxy', 1);
 
   app.use(securityHeaders());
@@ -71,6 +81,7 @@ export function createApp(deps: AppDeps): Express {
       clock,
       // Published only after the status change has been committed.
       onUpdated: (request) => hub.publish('request.updated', request),
+      onDeleted: (ids) => hub.publishDeleted(ids),
       mount: (router) =>
         mountStream(router, {
           hub,
@@ -89,8 +100,21 @@ export function createApp(deps: AppDeps): Express {
       config,
       repo: deps.repo,
       logger,
-      // Published only after the new request has been committed.
-      onCreated: (request) => hub.publish('request.created', request),
+      // Published only after the new request has been committed. The YouTube lookup runs after that
+      // and must not delay or fail the audience response.
+      onCreated: (request) => {
+        hub.publish('request.created', request);
+        if (!youtube) return;
+        const job = attachYoutubeMatch({
+          request,
+          client: youtube,
+          repo: deps.repo,
+          logger,
+          onUpdated: (updated) => hub.publish('request.updated', updated),
+        });
+        youtubeTail = youtubeTail.then(() => job);
+      },
+      onUpdated: (request) => hub.publish('request.updated', request),
       submissionGuard: limitEveryRequest(
         submissionLimiter,
         'You are sending requests too quickly. Please wait a minute and try again.',

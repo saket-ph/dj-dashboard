@@ -31,6 +31,7 @@ afterEach(() => {
 interface Opts {
   queue?: SongRequest[] | Response;
   patch?: (id: string, status: string) => Response | Promise<Response>;
+  onDelete?: (body: Record<string, unknown>) => Response;
 }
 
 function setup(opts: Opts = {}) {
@@ -38,6 +39,9 @@ function setup(opts: Opts = {}) {
   const onLoggedOut = vi.fn();
   const fetchSpy = installFetch((url, init) => {
     if (url === '/api/config') return json(200, { eventTitle: 'Test Night' });
+    if (url === '/api/dj/requests' && init?.method === 'DELETE') {
+      return opts.onDelete ? opts.onDelete(bodyOf(init)) : json(200, { deletedIds: [] });
+    }
     if (url === '/api/dj/requests') {
       const q = opts.queue ?? [];
       return q instanceof Response ? q : json(200, { requests: q });
@@ -247,6 +251,53 @@ describe('Dashboard live updates', () => {
   });
 });
 
+describe('Deleting requests', () => {
+  it('deletes only the selected songs after confirmation', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const { fetchSpy, user } = setup({
+      queue: [makeRequest(1), makeRequest(2)],
+      onDelete: (body) => json(200, { deletedIds: body.ids as string[] }),
+    });
+    await screen.findByText('Song 2');
+    await user.click(screen.getByRole('checkbox', { name: 'Select request 1, Song 1' }));
+    await user.click(screen.getByRole('button', { name: 'Delete selected (1)' }));
+    await waitFor(() => expect(screen.queryByText('Song 1')).toBeNull());
+    expect(screen.getByText('Song 2')).toBeTruthy();
+    const call = callsTo(fetchSpy, '/api/dj/requests', 'DELETE');
+    expect(call).toHaveLength(1);
+    expect(headerOf(call[0]![1], 'X-CSRF-Token')).toBe(CSRF);
+    expect(bodyOf(call[0]![1]).ids).toEqual(['id-1']);
+  });
+
+  it('does not delete when the confirmation is cancelled', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const { fetchSpy, user } = setup({ queue: [makeRequest(1)] });
+    await screen.findByText('Song 1');
+    await user.click(screen.getByRole('button', { name: 'Delete all' }));
+    expect(screen.getByText('Song 1')).toBeTruthy();
+    expect(callsTo(fetchSpy, '/api/dj/requests', 'DELETE')).toHaveLength(0);
+  });
+
+  it('clears pending and history together when deleting all', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const { user } = setup({
+      queue: [makeRequest(1), makeRequest(2, { status: 'played' })],
+      onDelete: () => json(200, { deletedIds: ['id-1', 'id-2'] }),
+    });
+    await screen.findByText('Song 1');
+    await user.click(screen.getByRole('button', { name: 'Delete all' }));
+    await screen.findByText(/No requests yet/i);
+  });
+
+  it('removes a song when another dashboard deletes it', async () => {
+    setup({ queue: [makeRequest(1), makeRequest(2)] });
+    await screen.findByText('Song 1');
+    act(() => FakeEventSource.last.emit('request.deleted', { ids: ['id-1'] }));
+    await waitFor(() => expect(screen.queryByText('Song 1')).toBeNull());
+    expect(screen.getByText('Song 2')).toBeTruthy();
+  });
+});
+
 describe('Safe rendering of untrusted text (FR-058, T-025)', () => {
   const hostile = {
     requesterName: '<img src=x onerror="window.__pwned=1">',
@@ -266,6 +317,34 @@ describe('Safe rendering of untrusted text (FR-058, T-025)', () => {
     expect(main.querySelector('img')).toBeNull();
     expect(main.querySelector('b')).toBeNull();
     expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined();
+  });
+
+  it('shows the YouTube link when the lookup arrives on the live stream', async () => {
+    setup({ queue: [makeRequest(1)] });
+    await screen.findByText('Song 1');
+    expect(screen.queryByRole('link')).toBeNull();
+    act(() =>
+      FakeEventSource.last.emit(
+        'request.updated',
+        makeRequest(1, { youtubeVideoId: 'dQw4w9WgXcQ', youtubeTitle: 'Song 1 video' }),
+      ),
+    );
+    const link = await screen.findByRole('link', { name: 'Song 1 video' });
+    expect(link.getAttribute('href')).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+  });
+
+  it('shows a YouTube link only for a real video id, as text', async () => {
+    setup({
+      queue: [
+        makeRequest(1, { youtubeVideoId: 'dQw4w9WgXcQ', youtubeTitle: '<b>Official</b>' }),
+        makeRequest(2, { youtubeVideoId: 'https://evil.example', youtubeTitle: 'Do not link' }),
+      ],
+    });
+    const link = await screen.findByRole('link', { name: '<b>Official</b>' });
+    expect(link.getAttribute('href')).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.querySelector('b')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Do not link' })).toBeNull();
   });
 
   it('renders markup arriving over the stream as text too', async () => {

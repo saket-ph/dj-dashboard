@@ -98,6 +98,7 @@ Use these exact names. Never commit real values; `.env` is git-ignored. In produ
 | `LOGIN_RATE_LIMIT_MAX` | no | `5` | Max failed DJ logins per window per client IP |
 | `LOGIN_RATE_LIMIT_WINDOW_MS` | no | `600000` | Login window length (10 minutes) |
 | `TRUST_PROXY` | no | `false` | Set `true` when a reverse proxy that terminates HTTPS sits in front of the app. See [HTTPS and the proxy setting](#https-cookie-and-proxy-settings) |
+| `YOUTUBE_API_KEY` | no | none | YouTube Data API key. After a song is saved, the server searches once by title (and artist, when given) and stores the first video. The DJ dashboard shows that link. Leave unset to save requests with no lookup |
 
 The app refuses to start if `PUBLIC_BASE_URL`, `DJ_PASSWORD_HASH`, or `SESSION_SECRET` is missing. Error messages never print secret values. In production it also logs a warning for common deployment mistakes (plain-HTTP public URL, HTTPS without `TRUST_PROXY`).
 
@@ -218,6 +219,8 @@ Assumes a Debian/Ubuntu VM with a DNS name (`dj.example.com`) pointing at it and
    DATABASE_PATH=/var/lib/dj-night/dj-requests.sqlite
    DJ_PASSWORD_HASH=<value printed in step 4>
    SESSION_SECRET=<value printed in step 4>
+   # Optional. Without it, requests are saved and no YouTube link is looked up.
+   # YOUTUBE_API_KEY=
    ```
 
 6. **Run it under systemd** (`/etc/systemd/system/dj-night.service`):
@@ -382,3 +385,4 @@ Run this the day of the event, in order. Every item is a yes/no; do not start th
 - No automated backups, no replication, no in-app reset, and no guarantee the queue survives a redeploy that replaces storage.
 - Rate limits and live connections are in memory: they reset on restart and do not work across multiple instances.
 - Only Chromium-based browsers were tested by hand; other modern browsers are expected to work but were not verified. See `docs/traceability.md` for the status of every requirement.
+- A YouTube link is the first search result for the title, not a confirmed official recording. Each new request uses one search (100 quota units). The free daily quota is about 100 searches. Failed lookups leave the song in the queue with no link.

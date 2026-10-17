@@ -27,6 +27,7 @@ describe('POST /api/requests (T1.11)', () => {
     assert.equal(body.request.status, 'pending');
     assert.match(String(body.request.id), /^[0-9a-f-]{36}$/);
     assert.ok(!('updatedAt' in body.request));
+    assert.ok(!('youtubeVideoId' in body.request));
     assert.equal(countRows(s.db), 1);
   });
 
@@ -78,7 +79,9 @@ describe('POST /api/requests (T1.11)', () => {
   it('returns sequence 1 then 2 for successive requests', async () => {
     const s = await server();
     const a = (await (await postJson(`${s.baseUrl}/api/requests`, valid)).json()) as { request: { sequenceNumber: number } };
-    const b = (await (await postJson(`${s.baseUrl}/api/requests`, valid)).json()) as { request: { sequenceNumber: number } };
+    const b = (await (await postJson(`${s.baseUrl}/api/requests`, { ...valid, songTitle: 'Second Song' })).json()) as {
+      request: { sequenceNumber: number };
+    };
     assert.deepEqual([a.request.sequenceNumber, b.request.sequenceNumber], [1, 2]);
   });
 
@@ -129,6 +132,25 @@ describe('GET /api/health and /api/config (T1.12, T1.16)', () => {
     assert.ok(!text.includes('secret'));
   });
 
+  it('lists songs by request count without requester names', async () => {
+    const s = await server();
+    await postJson(`${s.baseUrl}/api/requests`, { requesterName: 'Secret Guest', songTitle: 'Once' });
+    await postJson(`${s.baseUrl}/api/requests`, { requesterName: 'Secret Guest', songTitle: 'twice' });
+    await postJson(`${s.baseUrl}/api/requests`, { requesterName: 'Another', songTitle: 'Twice' });
+    const res = await fetch(`${s.baseUrl}/api/songs`);
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.ok(!text.includes('Secret Guest'));
+    assert.ok(!text.includes('Another'));
+    const body = JSON.parse(text) as { songs: { songTitle: string; count: number; liked: boolean }[] };
+    assert.equal(body.songs.length, 2);
+    assert.equal(body.songs[0]?.count, 2);
+    assert.equal(body.songs[0]?.songTitle, 'twice');
+    assert.equal(body.songs[0]?.liked, false);
+    assert.equal(body.songs[1]?.songTitle, 'Once');
+    assert.equal(body.songs[1]?.count, 1);
+  });
+
   it('config exposes only the event title', async () => {
     const s = await server();
     const res = await fetch(`${s.baseUrl}/api/config`);
@@ -159,7 +181,7 @@ describe('persistence across restarts (T-015, T-017, NFR-004)', () => {
     assert.equal(rows[0]?.id, created.id);
     assert.ok(!second.logger.lines.some((l) => /new empty database/i.test(l)));
     // Sequence continues rather than restarting.
-    const next = (await (await postJson(`${second.baseUrl}/api/requests`, valid)).json()) as {
+    const next = (await (await postJson(`${second.baseUrl}/api/requests`, { ...valid, songTitle: 'Later Song' })).json()) as {
       request: { sequenceNumber: number };
     };
     assert.equal(next.request.sequenceNumber, 2);

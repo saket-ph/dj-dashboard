@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, it } from 'node:test';
 import { DatabaseInitError, initializeDatabase } from '../src/db/database.js';
+import { applySchema } from '../src/db/schema.js';
 import { createSongRequestRepository } from '../src/db/requestRepository.js';
 import { createMemoryLogger } from '../src/logger.js';
 import { makeTempDir } from './helpers.js';
@@ -130,8 +131,8 @@ describe('request repository (T1.05, T1.10)', () => {
     const { db } = initializeDatabase(path.join(tmp(), 'q.sqlite'), createMemoryLogger());
     const repo = createSongRequestRepository(db);
     repo.create(sample);
-    // Violates the CHECK constraint (name longer than 80 chars) after the sequence was computed.
-    assert.throws(() => repo.create({ ...sample, requesterName: 'x'.repeat(81) }));
+    // A new title is inserted, then the name CHECK fails and the transaction rolls back.
+    assert.throws(() => repo.create({ ...sample, songTitle: 'Too long name', requesterName: 'x'.repeat(81) }));
     assert.equal(repo.count(), 1);
     const next = repo.create({ ...sample, songTitle: 'After failure' }).request;
     assert.equal(next.sequenceNumber, 2, 'failed insert must not leave a gap or a visible row');
@@ -164,6 +165,33 @@ describe('request repository (T1.05, T1.10)', () => {
     repo.create({ ...sample, requesterName: evil });
     assert.equal(repo.list()[0]?.requesterName, evil);
     assert.equal(repo.count(), 1, 'the table must still exist and hold exactly the one row');
+    db.close();
+  });
+
+  it('folds duplicate pending titles into the earliest row', () => {
+    const { db } = initializeDatabase(path.join(tmp(), 'q.sqlite'), createMemoryLogger());
+    const now = '2026-10-17T00:00:00.000Z';
+    const insert = db.prepare(
+      `INSERT INTO song_requests
+         (id, sequence_number, requester_name, song_title, status, created_at, updated_at, like_count)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?, 1)`,
+    );
+    insert.run('a', 1, 'Ann', 'twice', now, now);
+    insert.run('b', 2, 'Bob', 'Twice', now, now);
+    insert.run('c', 3, 'Cara', 'Once', now, now);
+    applySchema(db);
+    const rows = db.prepare('SELECT id, song_title, like_count FROM song_requests ORDER BY sequence_number').all() as {
+      id: string;
+      song_title: string;
+      like_count: number;
+    }[];
+    assert.deepEqual(
+      rows.map((row) => [row.id, row.song_title, row.like_count]),
+      [
+        ['a', 'twice', 2],
+        ['c', 'Once', 1],
+      ],
+    );
     db.close();
   });
 });

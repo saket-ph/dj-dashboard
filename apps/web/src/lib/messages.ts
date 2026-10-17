@@ -53,6 +53,22 @@ export function describeLoadError(err: unknown): string {
   return 'The queue could not be loaded.';
 }
 
+export function describeDeleteError(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'NETWORK':
+        return 'Could not reach the server. Nothing was deleted.';
+      case 'FORBIDDEN':
+        return 'Your session could not be verified. Refresh the page and try again.';
+      case 'SERVICE_UNAVAILABLE':
+        return 'The service is busy. Nothing was deleted; try again.';
+      default:
+        return 'The songs were not deleted. Please try again.';
+    }
+  }
+  return 'The songs were not deleted. Please try again.';
+}
+
 export function describeActionError(err: unknown): string {
   if (err instanceof ApiError) {
     switch (err.code) {

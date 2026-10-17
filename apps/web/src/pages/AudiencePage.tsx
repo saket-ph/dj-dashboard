@@ -163,6 +163,33 @@ export function AudiencePage() {
           />
         </div>
 
+        <div className="field">
+          <label htmlFor="songTitle">Song title</label>
+          <input
+            id="songTitle"
+            name="songTitle"
+            type="text"
+            autoComplete="off"
+            required
+            maxLength={LIMITS.song}
+            value={songTitle}
+            onChange={(e) => setSongTitle(e.target.value)}
+          />
+        </div>
+
+        <button type="submit" className="button button--primary" disabled={submitting} aria-busy={submitting}>
+          {submitting ? 'Sending…' : 'Send request'}
+        </button>
+
+        <div className="feedback" aria-live="polite">
+          {phase === 'success' && <p className="message message--success">{message}</p>}
+          {phase === 'error' && (
+            <p className="message message--error" role="alert">
+              {message}
+            </p>
+          )}
+        </div>
+
         <section className="song-board" aria-labelledby="songs-heading">
           <h2 id="songs-heading">Requested songs</h2>
           <p className="song-board__hint">
@@ -193,33 +220,6 @@ export function AudiencePage() {
             </ul>
           )}
         </section>
-
-        <div className="field">
-          <label htmlFor="songTitle">Song title</label>
-          <input
-            id="songTitle"
-            name="songTitle"
-            type="text"
-            autoComplete="off"
-            required
-            maxLength={LIMITS.song}
-            value={songTitle}
-            onChange={(e) => setSongTitle(e.target.value)}
-          />
-        </div>
-
-        <button type="submit" className="button button--primary" disabled={submitting} aria-busy={submitting}>
-          {submitting ? 'Sending…' : 'Send request'}
-        </button>
-
-        <div className="feedback" aria-live="polite">
-          {phase === 'success' && <p className="message message--success">{message}</p>}
-          {phase === 'error' && (
-            <p className="message message--error" role="alert">
-              {message}
-            </p>
-          )}
-        </div>
       </form>
     </main>
   );

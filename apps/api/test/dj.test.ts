@@ -49,6 +49,13 @@ describe('unauthenticated access (T-012, NFR-007)', () => {
       body: JSON.stringify({ all: true }),
     });
     assert.equal(del.status, 401);
+
+    const restore = await fetch(`${s.baseUrl}/api/dj/requests/restore`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ids: [first.id] }),
+    });
+    assert.equal(restore.status, 401);
     assert.equal(s.repo.count(), 2);
     assert.equal(s.repo.getById(first.id)?.status, 'pending', 'unauthenticated patch must not write');
 
@@ -134,6 +141,40 @@ describe('PATCH /api/dj/requests/:id/status (T2.10, T-013, T-014)', () => {
     );
     // Played/skipped are retained as history, not deleted.
     assert.equal(rows.length, 3);
+  });
+
+  it('brings a played song back to the queue without changing its like count', async () => {
+    const s = await server();
+    const [song] = await seedRequests(s.baseUrl, 1);
+    assert.ok(song);
+    s.db.prepare('UPDATE song_requests SET like_count = 7 WHERE id = ?').run(song.id);
+    const login = await loginAsDj(s.baseUrl);
+    const headers = authHeaders(login);
+
+    const played = await patchStatus(s.baseUrl, song.id, 'played', headers);
+    assert.equal(played.status, 200);
+    assert.equal(s.repo.getById(song.id)?.likeCount, 7);
+
+    const hidden = await fetch(`${s.baseUrl}/api/songs`);
+    assert.equal(((await hidden.json()) as { songs: unknown[] }).songs.length, 0);
+
+    const restored = await fetch(`${s.baseUrl}/api/dj/requests/restore`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify({ ids: [song.id] }),
+    });
+    assert.equal(restored.status, 200);
+    const body = (await restored.json()) as { requests: SongRequest[] };
+    assert.equal(body.requests.length, 1);
+    assert.equal(body.requests[0]!.status, 'pending');
+    assert.equal(body.requests[0]!.likeCount, 7);
+    assert.equal(body.requests[0]!.sequenceNumber, song.sequenceNumber);
+    assert.equal(s.repo.getById(song.id)?.likeCount, 7);
+
+    const visible = await fetch(`${s.baseUrl}/api/songs`);
+    const songs = ((await visible.json()) as { songs: { songTitle: string; count: number }[] }).songs;
+    assert.equal(songs.length, 1);
+    assert.equal(songs[0]!.count, 7);
   });
 
   it('updates updated_at but never created_at', async () => {

@@ -60,11 +60,23 @@ export function djRoutes(deps: DjRouteDeps): Router {
     res.json({ request: updated });
   });
 
+  router.post('/requests/restore', requireCsrf(), (req, res) => {
+    const ids = parseIds((req.body as { ids?: unknown } | undefined)?.ids, 'Choose at least one song to bring back.');
+    let restored: SongRequest[];
+    try {
+      restored = repo.restoreToQueue(ids);
+    } catch (err) {
+      throw persistenceError(logger, err, 'restore_requests');
+    }
+    for (const request of restored) deps.onUpdated?.(request);
+    res.json({ requests: restored });
+  });
+
   router.delete('/requests', requireCsrf(), (req, res) => {
     const body = (req.body ?? {}) as { all?: unknown; ids?: unknown };
     let deletedIds: string[];
     try {
-      deletedIds = body.all === true ? repo.deleteAll() : repo.deleteByIds(parseDeleteIds(body.ids));
+      deletedIds = body.all === true ? repo.deleteAll() : repo.deleteByIds(parseIds(body.ids, 'Choose at least one song to delete.'));
     } catch (err) {
       if (err instanceof AppError) throw err;
       throw persistenceError(logger, err, 'delete_requests');
@@ -77,15 +89,15 @@ export function djRoutes(deps: DjRouteDeps): Router {
   return router;
 }
 
-function parseDeleteIds(raw: unknown): string[] {
+function parseIds(raw: unknown, message: string): string[] {
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_DELETE_IDS) {
-    throw new AppError(400, 'VALIDATION_ERROR', 'Choose at least one song to delete.');
+    throw new AppError(400, 'VALIDATION_ERROR', message);
   }
   const ids: string[] = [];
   const seen = new Set<string>();
   for (const item of raw) {
     if (typeof item !== 'string' || !ID_PATTERN.test(item)) {
-      throw new AppError(400, 'VALIDATION_ERROR', 'Choose at least one song to delete.');
+      throw new AppError(400, 'VALIDATION_ERROR', message);
     }
     if (!seen.has(item)) {
       seen.add(item);

@@ -30,6 +30,11 @@ export interface SongRequestRepository {
   getById(id: string): SongRequest | undefined;
   /** Updates status and updated_at only. Sequence and identity never change. */
   updateStatus(id: string, status: Exclude<RequestStatus, 'pending'>): SongRequest | undefined;
+  /**
+   * Moves played or skipped songs back to pending. The like count is left unchanged.
+   * Ids that are missing or already pending are skipped.
+   */
+  restoreToQueue(ids: readonly string[]): SongRequest[];
   count(): number;
   /** Cheap liveness probe for /api/health. Throws if the database is unusable. */
   ping(): void;
@@ -301,6 +306,23 @@ export function createSongRequestRepository(db: Database.Database): SongRequestR
         if (result.changes === 0) return undefined;
         clearLikesForSong.run(id);
         return toSongRequest(selectOne.get(id) as RequestRow);
+      });
+      return tx.immediate();
+    },
+    restoreToQueue: (ids) => {
+      if (ids.length === 0) return [];
+      const tx = db.transaction(() => {
+        const restored: SongRequest[] = [];
+        const now = new Date().toISOString();
+        const restoreStmt = db.prepare(
+          `UPDATE song_requests SET status = 'pending', updated_at = ? WHERE id = ? AND status != 'pending'`,
+        );
+        for (const id of ids) {
+          const result = restoreStmt.run(now, id);
+          if (result.changes === 0) continue;
+          restored.push(toSongRequest(selectOne.get(id) as RequestRow));
+        }
+        return restored;
       });
       return tx.immediate();
     },

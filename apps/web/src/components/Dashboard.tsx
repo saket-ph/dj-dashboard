@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, apiFetch } from '../lib/api';
 import { startLiveConnection, type ConnectionState } from '../lib/liveConnection';
 import { describeActionError, describeDeleteError, describeLoadError } from '../lib/messages';
-import { applySnapshot, mainQueue, mergeReload, removeRequests, upsertRequest } from '../lib/queue';
+import { applySnapshot, mergeReload, removeRequests, splitQueue, upsertRequest } from '../lib/queue';
 import type { SongRequest } from '../lib/types';
 import { RequestRow } from './RequestRow';
 
@@ -38,6 +38,7 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
   const [actionError, setActionError] = useState('');
   const [loggingOut, setLoggingOut] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [connection, setConnection] = useState<ConnectionState>('connecting');
   // Ids deleted locally that a stale GET must not put back. Cleared when a stream snapshot arrives.
@@ -178,6 +179,27 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
     setSelected(on ? new Set(requests.map((row) => row.id)) : new Set());
   }
 
+  async function bringBack(ids: string[]) {
+    if (restoring || ids.length === 0) return;
+    const label = ids.length === 1 ? 'this song' : `${ids.length} songs`;
+    if (!window.confirm(`Bring ${label} back to the queue? The likes stay as they are.`)) return;
+    setRestoring(true);
+    setActionError('');
+    try {
+      const { data } = await apiFetch<{ requests: SongRequest[] }>('/api/dj/requests/restore', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+        csrfToken,
+      });
+      setRequests((list) => data.requests.reduce((acc, row) => upsertRequest(acc, row), list));
+    } catch (err) {
+      if (handleError(err)) return;
+      setActionError(describeActionError(err));
+    } finally {
+      setRestoring(false);
+    }
+  }
+
   async function logout() {
     if (loggingOut) return;
     setLoggingOut(true);
@@ -193,9 +215,8 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
     onLoggedOut();
   }
 
-  const queue = useMemo(() => mainQueue(requests), [requests]);
-  const pendingTotal = queue.filter((row) => row.status === 'pending').length;
-  const nextId = queue.find((row) => row.status === 'pending')?.id;
+  const { pending, history } = useMemo(() => splitQueue(requests), [requests]);
+  const selectedHistory = history.filter((row) => selected.has(row.id));
   const allSelected = requests.length > 0 && requests.every((row) => selected.has(row.id));
 
   return (
@@ -265,6 +286,16 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
               </label>
               <button
                 type="button"
+                className="button"
+                disabled={selectedHistory.length === 0 || restoring}
+                onClick={() => void bringBack(selectedHistory.map((row) => row.id))}
+              >
+                {restoring
+                  ? 'Bringing back…'
+                  : `Bring back${selectedHistory.length > 0 ? ` (${selectedHistory.length})` : ''}`}
+              </button>
+              <button
+                type="button"
                 className="button button--danger"
                 disabled={selected.size === 0 || deleting}
                 onClick={() =>
@@ -287,24 +318,41 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
             </div>
           )}
 
-          <section aria-labelledby="queue-heading">
-            <h2 id="queue-heading">
-              Queue <span className="count" data-testid="pending-count">{pendingTotal}</span>
+          <section aria-labelledby="pending-heading">
+            <h2 id="pending-heading">
+              Pending <span className="count" data-testid="pending-count">{pending.length}</span>
             </h2>
             {requests.length === 0 ? (
               <p className="state state--empty">No requests yet. New requests will show up here.</p>
+            ) : pending.length === 0 ? (
+              <p className="state state--empty">Nothing pending. Every request so far has been handled.</p>
             ) : (
               <ol className="queue">
-                {queue.map((r) => (
+                {pending.map((r, i) => (
                   <RequestRow
                     key={r.id}
                     request={r}
-                    isNext={r.id === nextId}
+                    isNext={i === 0}
                     busy={busyIds.has(r.id)}
                     selected={selected.has(r.id)}
                     onSelect={toggleSelected}
-                    onMark={r.status === 'pending' ? mark : undefined}
+                    onMark={mark}
                   />
+                ))}
+              </ol>
+            )}
+          </section>
+
+          <section aria-labelledby="history-heading">
+            <h2 id="history-heading">
+              History <span className="count">{history.length}</span>
+            </h2>
+            {history.length === 0 ? (
+              <p className="state state--empty">Played and skipped requests will appear here.</p>
+            ) : (
+              <ol className="queue queue--history">
+                {history.map((r) => (
+                  <RequestRow key={r.id} request={r} selected={selected.has(r.id)} onSelect={toggleSelected} />
                 ))}
               </ol>
             )}

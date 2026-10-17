@@ -73,6 +73,7 @@ describe('GET /api/dj/requests (T2.09, T-009)', () => {
     assert.deepEqual(Object.keys(first).sort(), [
       'artistName',
       'createdAt',
+      'durationSeconds',
       'id',
       'likeCount',
       'requesterName',

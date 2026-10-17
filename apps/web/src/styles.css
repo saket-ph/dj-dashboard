@@ -381,11 +381,47 @@ h2 {
   color: var(--accent);
 }
 
+.row__titleline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.7rem;
+}
+
 .row__song {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 800;
   overflow-wrap: anywhere;
+}
+
+.row__likes {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.28rem 0.75rem 0.28rem 0.55rem;
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: #3a1020;
+  background: #ffd6e0;
+  border: 2px solid #e11d48;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.row__heart {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.row--next .row__likes {
+  font-size: 1.28rem;
+  padding: 0.35rem 0.85rem 0.35rem 0.6rem;
+  background: #ffe4ea;
+  box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.28);
 }
 
 .row--next .row__song {
@@ -468,17 +504,106 @@ body.theme-audience {
   color: #f7f4ef;
   background-color: #120c18;
   background-image:
-    linear-gradient(180deg, rgba(8, 6, 16, 0.28) 0%, rgba(8, 6, 16, 0.62) 100%),
+    linear-gradient(180deg, rgba(8, 6, 16, 0.5) 0%, rgba(8, 6, 16, 0.74) 100%),
     url('/harmony-night.jpg');
-  background-position: center top;
+  background-position: center center;
   background-size: cover;
   background-repeat: no-repeat;
   background-attachment: fixed;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .page--audience {
   max-width: 28rem;
-  padding: max(0.75rem, env(safe-area-inset-top)) 0.85rem max(1.25rem, env(safe-area-inset-bottom));
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: max(0.5rem, env(safe-area-inset-top)) 0.85rem max(0.65rem, env(safe-area-inset-bottom));
+}
+
+.page--audience .page__header h1 {
+  margin: 0.2rem 0 0;
+  font-size: 1.45rem;
+}
+
+.page--audience .lede {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.page--audience .form {
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 0.55rem;
+  overflow: hidden;
+}
+
+.page--audience .song-board {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.page--audience .song-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.event-ticker {
+  overflow: hidden;
+  height: 2.15rem;
+  margin: 0 0 0.35rem;
+  border: 2px solid #ffe08a;
+  border-radius: 8px;
+  background: rgba(12, 10, 22, 0.78);
+}
+
+.event-ticker__track {
+  display: flex;
+  width: max-content;
+  margin: 0;
+  animation: ticker-ltr 16s linear infinite;
+}
+
+.event-ticker__track span {
+  padding: 0.28rem 1.75rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #ffe08a;
+  white-space: nowrap;
+}
+
+@keyframes ticker-ltr {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .event-ticker__track {
+    animation: none;
+  }
 }
 
 body.theme-audience input[type='text'],
@@ -542,6 +667,14 @@ body.theme-audience .field label {
   font-size: 0.9rem;
 }
 
+.song-row__length,
+.row__length {
+  margin: 0.15rem 0 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #ffe08a;
+}
+
 .song-row__add {
   flex: 0 0 auto;
   width: 52px;
@@ -566,10 +699,6 @@ body.theme-audience .field label {
   background: #7dffb3;
 }
 
-.row__likes {
-  margin: 0.15rem 0 0;
-  font-weight: 800;
-}
 
 body.theme-dj .button--skipped {
   color: var(--text);

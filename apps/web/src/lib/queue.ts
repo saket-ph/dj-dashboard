@@ -65,6 +65,11 @@ function byPopularity(a: SongRequest, b: SongRequest): number {
   return byLikes !== 0 ? byLikes : a.sequenceNumber - b.sequenceNumber;
 }
 
+/** Every song, most liked first, including ones already played or skipped. */
+export function mainQueue(list: readonly SongRequest[]): SongRequest[] {
+  return normalizeQueue(list).sort(byPopularity);
+}
+
 export function splitQueue(list: readonly SongRequest[]): SplitQueue {
   const sorted = normalizeQueue(list);
   return {

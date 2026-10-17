@@ -16,6 +16,8 @@ export interface SongRequest {
   youtubeTitle: string | null;
   /** How many people asked for this song. Pending songs with the same title share one row. */
   likeCount: number;
+  /** Total length in seconds when YouTube returned one, otherwise null. */
+  durationSeconds: number | null;
 }
 
 export interface NewSongRequestInput {

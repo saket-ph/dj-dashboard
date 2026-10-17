@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS song_requests (
   youtube_video_id TEXT
     CHECK (youtube_video_id IS NULL OR length(youtube_video_id) = 11),
   youtube_title TEXT
-    CHECK (youtube_title IS NULL OR length(youtube_title) <= 200)
+    CHECK (youtube_title IS NULL OR length(youtube_title) <= 200),
+  duration_seconds INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_song_requests_status_sequence
@@ -85,6 +86,9 @@ function ensureLikeCount(db: Database.Database): void {
   );
   if (!present.has('like_count')) {
     db.exec('ALTER TABLE song_requests ADD COLUMN like_count INTEGER NOT NULL DEFAULT 1');
+  }
+  if (!present.has('duration_seconds')) {
+    db.exec('ALTER TABLE song_requests ADD COLUMN duration_seconds INTEGER');
   }
 }
 

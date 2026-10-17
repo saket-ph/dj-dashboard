@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, apiFetch } from '../lib/api';
 import { startLiveConnection, type ConnectionState } from '../lib/liveConnection';
 import { describeActionError, describeDeleteError, describeLoadError } from '../lib/messages';
-import { applySnapshot, mergeReload, removeRequests, splitQueue, upsertRequest } from '../lib/queue';
+import { applySnapshot, mainQueue, mergeReload, removeRequests, upsertRequest } from '../lib/queue';
 import type { SongRequest } from '../lib/types';
 import { RequestRow } from './RequestRow';
 
@@ -193,7 +193,9 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
     onLoggedOut();
   }
 
-  const { pending, history } = useMemo(() => splitQueue(requests), [requests]);
+  const queue = useMemo(() => mainQueue(requests), [requests]);
+  const pendingTotal = queue.filter((row) => row.status === 'pending').length;
+  const nextId = queue.find((row) => row.status === 'pending')?.id;
   const allSelected = requests.length > 0 && requests.every((row) => selected.has(row.id));
 
   return (
@@ -285,41 +287,24 @@ export function Dashboard({ csrfToken, onUnauthenticated, onLoggedOut }: Props) 
             </div>
           )}
 
-          <section aria-labelledby="pending-heading">
-            <h2 id="pending-heading">
-              Pending <span className="count" data-testid="pending-count">{pending.length}</span>
+          <section aria-labelledby="queue-heading">
+            <h2 id="queue-heading">
+              Queue <span className="count" data-testid="pending-count">{pendingTotal}</span>
             </h2>
             {requests.length === 0 ? (
               <p className="state state--empty">No requests yet. New requests will show up here.</p>
-            ) : pending.length === 0 ? (
-              <p className="state state--empty">Nothing pending. Every request so far has been handled.</p>
             ) : (
               <ol className="queue">
-                {pending.map((r, i) => (
+                {queue.map((r) => (
                   <RequestRow
                     key={r.id}
                     request={r}
-                    isNext={i === 0}
+                    isNext={r.id === nextId}
                     busy={busyIds.has(r.id)}
                     selected={selected.has(r.id)}
                     onSelect={toggleSelected}
-                    onMark={mark}
+                    onMark={r.status === 'pending' ? mark : undefined}
                   />
-                ))}
-              </ol>
-            )}
-          </section>
-
-          <section aria-labelledby="history-heading">
-            <h2 id="history-heading">
-              History <span className="count">{history.length}</span>
-            </h2>
-            {history.length === 0 ? (
-              <p className="state state--empty">Played and skipped requests will appear here.</p>
-            ) : (
-              <ol className="queue queue--history">
-                {history.map((r) => (
-                  <RequestRow key={r.id} request={r} selected={selected.has(r.id)} onSelect={toggleSelected} />
                 ))}
               </ol>
             )}

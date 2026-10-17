@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, apiFetch } from '../lib/api';
 import { createAttemptKeys } from '../lib/attemptKey';
+import { formatDuration } from '../lib/format';
 import { describeSubmitError } from '../lib/messages';
 import { createSubmitLock } from '../lib/submitLock';
 
@@ -17,6 +18,7 @@ interface PopularSong {
   songTitle: string;
   count: number;
   liked?: boolean;
+  durationSeconds?: number | null;
 }
 
 interface CheerResponse {
@@ -136,6 +138,13 @@ export function AudiencePage() {
   return (
     <main className="page page--audience">
       <header className="page__header">
+        <div className="event-ticker" aria-hidden="true">
+          <p className="event-ticker__track">
+            <span>Provident Harmony - Dandiya Night</span>
+            <span>Provident Harmony - Dandiya Night</span>
+          </p>
+        </div>
+        <p className="visually-hidden">Provident Harmony - Dandiya Night</p>
         <h1>{eventTitle ?? 'Song requests'}</h1>
         <p className="lede">Request a song for the DJ. No sign-up needed.</p>
         {configFailed && (
@@ -199,11 +208,14 @@ export function AudiencePage() {
             <p className="song-board__empty">No songs yet. Be the first to request one.</p>
           ) : (
             <ul className="song-list">
-              {songs.map((song) => (
+              {songs.map((song) => {
+                const lengthLabel = formatDuration(song.durationSeconds);
+                return (
                 <li key={song.id} className="song-row">
                   <div className="song-row__main">
                     <p className="song-row__title">{song.songTitle}</p>
                     <p className="song-row__count">{song.count === 1 ? '1 like' : `${song.count} likes`}</p>
+                    {lengthLabel && <p className="song-row__length">Length {lengthLabel}</p>}
                   </div>
                   <button
                     type="button"
@@ -216,7 +228,8 @@ export function AudiencePage() {
                     {song.liked ? '✓' : '+'}
                   </button>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </section>

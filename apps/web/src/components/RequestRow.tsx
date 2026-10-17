@@ -1,4 +1,4 @@
-import { formatTime, STATUS_LABEL, STATUS_SYMBOL } from '../lib/format';
+import { formatDuration, formatTime, STATUS_LABEL, STATUS_SYMBOL } from '../lib/format';
 import type { SongRequest } from '../lib/types';
 
 /** YouTube video ids are 11 characters. Anything else is not turned into a link. */
@@ -21,6 +21,9 @@ interface Props {
 export function RequestRow({ request, isNext = false, busy = false, selected = false, onSelect, onMark }: Props) {
   const label = STATUS_LABEL[request.status];
   const youtubeHref = watchUrl(request.youtubeVideoId);
+  const likes = request.likeCount ?? 1;
+  const likesLabel = likes === 1 ? '1 like' : `${likes} likes`;
+  const lengthLabel = formatDuration(request.durationSeconds);
   return (
     <li className={`row row--${request.status}${isNext ? ' row--next' : ''}`} data-request-id={request.id}>
       {onSelect && (
@@ -38,8 +41,16 @@ export function RequestRow({ request, isNext = false, busy = false, selected = f
       </div>
       <div className="row__main">
         {isNext && <p className="row__flag">Next up</p>}
-        <p className="row__song">{request.songTitle}</p>
-        <p className="row__likes">{(request.likeCount ?? 1) === 1 ? '1 like' : `${request.likeCount} likes`}</p>
+        <div className="row__titleline">
+          <p className="row__song">{request.songTitle}</p>
+          <p className="row__likes">
+            <span className="row__heart" aria-hidden="true">
+              ❤️
+            </span>
+            {likesLabel}
+          </p>
+          {lengthLabel && <p className="row__length">Length {lengthLabel}</p>}
+        </div>
         {request.artistName && <p className="row__artist">{request.artistName}</p>}
         {youtubeHref && (
           <p className="row__youtube">

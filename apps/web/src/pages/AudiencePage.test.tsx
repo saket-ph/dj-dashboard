@@ -38,6 +38,7 @@ describe('AudiencePage', () => {
   it('shows the event title from the server and a labelled form with no login (FR-001, FR-003)', async () => {
     setup(() => json(201, {}));
     expect(await screen.findByRole('heading', { level: 1, name: 'Test Night' })).toBeTruthy();
+    expect(screen.getAllByText('Provident Harmony - Dandiya Night').length).toBeGreaterThan(0);
     expect(screen.getByLabelText('Your name')).toBeTruthy();
     expect(screen.getByLabelText('Song title')).toBeTruthy();
     expect(screen.queryByLabelText(/Artist/)).toBeNull();

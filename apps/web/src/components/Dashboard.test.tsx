@@ -76,6 +76,8 @@ describe('Dashboard states', () => {
     await screen.findByText('Song 1');
     const rows = screen.getAllByRole('listitem');
     expect(rows[0]!.textContent).toContain('Song 1'); // lowest sequence first
+    expect(rows[0]!.textContent).toContain('❤️');
+    expect(rows[0]!.textContent).toContain('1 like');
     expect(rows[0]!.textContent).toContain('Next up');
     expect(rows[1]!.textContent).not.toContain('Next up');
     expect(pendingCount()).toBe('2');
@@ -108,29 +110,30 @@ describe('Dashboard states', () => {
     await waitFor(() => expect(onUnauthenticated).toHaveBeenCalled());
   });
 
-  it('splits pending from history and labels status with words (FR-022, FR-023, §13.3)', async () => {
+  it('keeps played and skipped songs in the main queue with their likes (FR-022, FR-023, §13.3)', async () => {
     setup({
       queue: [
-        makeRequest(1, { status: 'played' }),
-        makeRequest(2),
-        makeRequest(3, { status: 'skipped' }),
+        makeRequest(1, { status: 'played', likeCount: 4 }),
+        makeRequest(2, { likeCount: 1, durationSeconds: 185 }),
+        makeRequest(3, { status: 'skipped', likeCount: 2 }),
       ],
     });
     await screen.findByText('Song 2');
-    const pendingSection = screen.getByRole('region', { name: /Pending/ });
-    const historySection = screen.getByRole('region', { name: /History/ });
-    expect(within(pendingSection).getByText('Song 2')).toBeTruthy();
-    expect(within(historySection).getByText('Song 1')).toBeTruthy();
-    expect(within(historySection).getByText('Song 3')).toBeTruthy();
-    expect(within(historySection).getByText('Played')).toBeTruthy();
-    expect(within(historySection).getByText('Skipped')).toBeTruthy();
-    // Handled rows have no action buttons.
-    expect(within(historySection).queryByRole('button')).toBeNull();
+    const queue = screen.getByRole('region', { name: /Queue/ });
+    expect(within(queue).getByText('Song 1')).toBeTruthy();
+    expect(within(queue).getByText('Song 2')).toBeTruthy();
+    expect(within(queue).getByText('Song 3')).toBeTruthy();
+    expect(within(queue).getByText('4 likes')).toBeTruthy();
+    expect(within(queue).getByText('Length 3:05')).toBeTruthy();
+    expect(within(queue).getAllByText('Played').length).toBeGreaterThan(0);
+    expect(within(queue).getAllByText('Skipped').length).toBeGreaterThan(0);
+    expect(within(queue).queryByRole('button', { name: /Song 1, as played/ })).toBeNull();
+    expect(within(queue).getByRole('button', { name: /Song 2, as played/ })).toBeTruthy();
   });
 });
 
 describe('Dashboard actions', () => {
-  it('marks played with the CSRF header, then moves the row to history (FR-034, FR-036)', async () => {
+  it('marks played with the CSRF header and keeps the song on the main list (FR-034, FR-036)', async () => {
     const { fetchSpy, user } = setup({
       queue: [makeRequest(1), makeRequest(2)],
       patch: (id, status) => json(200, { request: makeRequest(1, { id, status: status as 'played', updatedAt: '2026-10-14T12:05:00.000Z' }) }),
@@ -142,8 +145,10 @@ describe('Dashboard actions', () => {
     const [call] = callsTo(fetchSpy, '/api/dj/requests/id-1/status', 'PATCH');
     expect(headerOf(call![1] as RequestInit, 'X-CSRF-Token')).toBe(CSRF);
     expect(bodyOf(call![1] as RequestInit)).toEqual({ status: 'played' });
-    const history = screen.getByRole('region', { name: /History/ });
-    expect(within(history).getByText('Song 1')).toBeTruthy();
+    const queue = screen.getByRole('region', { name: /Queue/ });
+    expect(within(queue).getByText('Song 1')).toBeTruthy();
+    expect(within(queue).getAllByText('Played').length).toBeGreaterThan(0);
+    expect(within(queue).getAllByText('1 like').length).toBeGreaterThan(0);
   });
 
   it('sends one PATCH on a double click and disables the buttons while in flight (FR-034)', async () => {

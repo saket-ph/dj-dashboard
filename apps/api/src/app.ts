@@ -15,7 +15,7 @@ import { authRoutes } from './routes/authRoutes.js';
 import { djRoutes } from './routes/djRoutes.js';
 import { publicRoutes } from './routes/publicRoutes.js';
 import { mountStream } from './routes/streamRoutes.js';
-import { attachYoutubeMatch, createYoutubeClient, type YoutubeClient } from './youtube.js';
+import { attachYoutubeMatch, createYoutubeClient, fillSongDurations, type YoutubeClient } from './youtube.js';
 
 export interface AppDeps {
   config: AppConfig;
@@ -124,6 +124,16 @@ export function createApp(deps: AppDeps): Express {
 
   // Unknown /api/* paths are JSON 404s, never the SPA shell.
   app.use('/api', notFoundHandler());
+
+  if (youtube) {
+    const job = fillSongDurations({
+      client: youtube,
+      repo: deps.repo,
+      logger,
+      onUpdated: (updated) => hub.publish('request.updated', updated),
+    });
+    youtubeTail = youtubeTail.then(() => job);
+  }
 
   serveWebApp(app, config);
 

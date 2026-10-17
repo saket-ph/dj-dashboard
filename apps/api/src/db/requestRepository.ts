@@ -38,7 +38,11 @@ export interface SongRequestRepository {
    * Does not change status, sequence, or updated_at. Returns undefined when the id is
    * invalid, the row is gone, or a match was already stored.
    */
-  setYoutube(id: string, videoId: string, title: string | null): SongRequest | undefined;
+  setYoutube(id: string, videoId: string, title: string | null, durationSeconds?: number | null): SongRequest | undefined;
+  /** Songs that already have a YouTube video but no stored length. */
+  missingDurations(): { id: string; videoId: string }[];
+  /** Stores a length without changing status or updated_at. */
+  setDuration(id: string, durationSeconds: number): SongRequest | undefined;
   /** Deletes the given rows. Unknown ids are ignored. Returns the ids that were actually removed. */
   deleteByIds(ids: readonly string[]): string[];
   /** Deletes every song request. Sessions are untouched. Returns the ids that were removed. */
@@ -50,6 +54,7 @@ export interface PopularSong {
   songTitle: string;
   count: number;
   liked: boolean;
+  durationSeconds: number | null;
 }
 
 export type CheerOutcome =
@@ -80,6 +85,7 @@ interface RequestRow {
   youtube_video_id: string | null;
   youtube_title: string | null;
   like_count: number;
+  duration_seconds: number | null;
 }
 
 function toSongRequest(row: RequestRow): SongRequest {
@@ -95,13 +101,14 @@ function toSongRequest(row: RequestRow): SongRequest {
     youtubeVideoId: row.youtube_video_id,
     youtubeTitle: row.youtube_title,
     likeCount: row.like_count,
+    durationSeconds: row.duration_seconds,
   };
 }
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
 const COLUMNS =
-  'id, sequence_number, requester_name, song_title, artist_name, status, created_at, updated_at, idempotency_key, youtube_video_id, youtube_title, like_count';
+  'id, sequence_number, requester_name, song_title, artist_name, status, created_at, updated_at, idempotency_key, youtube_video_id, youtube_title, like_count, duration_seconds';
 
 export function createSongRequestRepository(db: Database.Database): SongRequestRepository {
   const selectByKey = db.prepare(`SELECT ${COLUMNS} FROM song_requests WHERE idempotency_key = ?`);
@@ -123,7 +130,7 @@ export function createSongRequestRepository(db: Database.Database): SongRequestR
     'INSERT INTO submission_keys (idempotency_key, song_id, requester_name, song_title) VALUES (?, ?, ?, ?)',
   );
   const popularSongsStmt = db.prepare(
-    `SELECT id, song_title, like_count,
+    `SELECT id, song_title, like_count, duration_seconds,
             EXISTS(SELECT 1 FROM audience_likes WHERE song_id = song_requests.id AND voter_id = ?) AS liked
        FROM song_requests
       WHERE status = 'pending'
@@ -142,7 +149,7 @@ export function createSongRequestRepository(db: Database.Database): SongRequestR
   const countStmt = db.prepare('SELECT COUNT(*) AS n FROM song_requests');
   const setYoutubeStmt = db.prepare(
     `UPDATE song_requests
-        SET youtube_video_id = ?, youtube_title = ?
+        SET youtube_video_id = ?, youtube_title = ?, duration_seconds = ?
       WHERE id = ? AND youtube_video_id IS NULL`,
   );
 
@@ -207,6 +214,7 @@ export function createSongRequestRepository(db: Database.Database): SongRequestR
       youtube_video_id: null,
       youtube_title: null,
       like_count: 1,
+      duration_seconds: null,
     };
     insertRow.run({
       id: row.id,
@@ -232,6 +240,7 @@ export function createSongRequestRepository(db: Database.Database): SongRequestR
           id: string;
           song_title: string;
           like_count: number;
+          duration_seconds: number | null;
           liked: number;
         }[]
       ).map((row) => ({
@@ -239,6 +248,7 @@ export function createSongRequestRepository(db: Database.Database): SongRequestR
         songTitle: row.song_title,
         count: row.like_count,
         liked: row.liked === 1,
+        durationSeconds: row.duration_seconds,
       })),
     cheer: (voterId, songId, move) => {
       const tx = db.transaction((): CheerOutcome => {
@@ -298,11 +308,37 @@ export function createSongRequestRepository(db: Database.Database): SongRequestR
     ping: () => {
       db.prepare('SELECT 1').get();
     },
-    setYoutube: (id, videoId, title) => {
+    setYoutube: (id, videoId, title, durationSeconds = null) => {
       if (!VIDEO_ID.test(videoId)) return undefined;
       const storedTitle = title?.replace(/\s+/g, ' ').trim().slice(0, 200) || null;
+      const storedDuration =
+        typeof durationSeconds === 'number' && Number.isFinite(durationSeconds) && durationSeconds > 0
+          ? Math.round(durationSeconds)
+          : null;
       const tx = db.transaction(() => {
-        const result = setYoutubeStmt.run(videoId, storedTitle, id);
+        const result = setYoutubeStmt.run(videoId, storedTitle, storedDuration, id);
+        if (result.changes === 0) return undefined;
+        return toSongRequest(selectOne.get(id) as RequestRow);
+      });
+      return tx.immediate();
+    },
+    missingDurations: () =>
+      (
+        db
+          .prepare(
+            `SELECT id, youtube_video_id AS videoId
+               FROM song_requests
+              WHERE youtube_video_id IS NOT NULL AND duration_seconds IS NULL
+              LIMIT 50`,
+          )
+          .all() as { id: string; videoId: string }[]
+      ),
+    setDuration: (id, durationSeconds) => {
+      if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return undefined;
+      const tx = db.transaction(() => {
+        const result = db
+          .prepare('UPDATE song_requests SET duration_seconds = ? WHERE id = ? AND duration_seconds IS NULL')
+          .run(Math.round(durationSeconds), id);
         if (result.changes === 0) return undefined;
         return toSongRequest(selectOne.get(id) as RequestRow);
       });

@@ -7,6 +7,7 @@ import { applySchema } from '../src/db/schema.js';
 import { createSongRequestRepository } from '../src/db/requestRepository.js';
 import {
   createYoutubeClient,
+  parseIsoDuration,
   songSearchQuery,
   YoutubeLookupError,
   youtubeWatchUrl,
@@ -33,7 +34,7 @@ describe('YouTube search client', () => {
       });
     };
     const match = await createYoutubeClient('super-secret-yt', fetchImpl).search(songSearchQuery('Example Song', 'Example Artist'));
-    assert.deepEqual(match, { videoId: 'dQw4w9WgXcQ', title: 'Example Song' });
+    assert.deepEqual(match, { videoId: 'dQw4w9WgXcQ', title: 'Example Song', durationSeconds: null });
     const url = new URL(seen[0]!);
     assert.equal(url.searchParams.get('q'), 'Example Song Example Artist');
     assert.equal(url.searchParams.get('type'), 'video');
@@ -49,6 +50,21 @@ describe('YouTube search client', () => {
     assert.equal(await client.search('Song'), null);
     const empty = createYoutubeClient('k', async () => jsonResponse(200, { items: [] }));
     assert.equal(await empty.search('Song'), null);
+  });
+
+  it('stores the video length from YouTube', async () => {
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes('/videos')) {
+        return jsonResponse(200, { items: [{ id: 'dQw4w9WgXcQ', contentDetails: { duration: 'PT4M5S' } }] });
+      }
+      return jsonResponse(200, { items: [{ id: { videoId: 'dQw4w9WgXcQ' }, snippet: { title: 'Song' } }] });
+    };
+    const match = await createYoutubeClient('k', fetchImpl).search('Song');
+    assert.equal(match?.durationSeconds, 245);
+    assert.equal(parseIsoDuration('PT1H2M3S'), 3723);
+    assert.equal(parseIsoDuration('PT45S'), 45);
+    assert.equal(parseIsoDuration('not-a-duration'), null);
   });
 
   it('reports an HTTP failure by status only', async () => {

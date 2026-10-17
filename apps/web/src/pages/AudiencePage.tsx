@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, apiFetch } from '../lib/api';
 import { createAttemptKeys } from '../lib/attemptKey';
-import { formatDuration } from '../lib/format';
 import { describeSubmitError } from '../lib/messages';
 import { createSubmitLock } from '../lib/submitLock';
 
@@ -18,7 +17,6 @@ interface PopularSong {
   songTitle: string;
   count: number;
   liked?: boolean;
-  durationSeconds?: number | null;
 }
 
 interface CheerResponse {
@@ -208,14 +206,11 @@ export function AudiencePage() {
             <p className="song-board__empty">No songs yet. Be the first to request one.</p>
           ) : (
             <ul className="song-list">
-              {songs.map((song) => {
-                const lengthLabel = formatDuration(song.durationSeconds);
-                return (
+              {songs.map((song) => (
                 <li key={song.id} className="song-row">
                   <div className="song-row__main">
                     <p className="song-row__title">{song.songTitle}</p>
                     <p className="song-row__count">{song.count === 1 ? '1 like' : `${song.count} likes`}</p>
-                    {lengthLabel && <p className="song-row__length">Length {lengthLabel}</p>}
                   </div>
                   <button
                     type="button"
@@ -228,8 +223,7 @@ export function AudiencePage() {
                     {song.liked ? '✓' : '+'}
                   </button>
                 </li>
-                );
-              })}
+              ))}
             </ul>
           )}
         </section>
